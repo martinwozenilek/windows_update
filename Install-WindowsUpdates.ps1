@@ -2,12 +2,13 @@
 
 <#
 .SYNOPSIS
-    Checks for and installs Windows Updates, managing the Windows Update service as needed.
+    Checks for and installs Windows Updates, managing the Update Orchestrator Service as needed.
 
 .DESCRIPTION
-    This script checks for available Windows Updates. If updates are found, it enables and starts
-    the Windows Update service (if disabled), downloads and installs the updates, and restarts
-    the system if required.
+    This script manages the Update Orchestrator Service (sets to Automatic and starts if disabled), then
+    checks for available Windows Updates. If updates are found, it downloads and installs them,
+    and restarts the system if required. If no updates are found, it stops and disables the service
+    and shuts down the system.
 
 .EXITCODES
     0 - Success (no updates available or updates installed successfully)
@@ -42,9 +43,9 @@ function Test-AdminPrivileges {
 }
 
 function Get-WindowsUpdateServiceStatus {
-    $service = Get-Service -Name "wuauserv" -ErrorAction SilentlyContinue
+    $service = Get-Service -Name "UsoSvc" -ErrorAction SilentlyContinue
     if ($null -eq $service) {
-        Write-Log "Windows Update service (wuauserv) not found" "ERROR"
+        Write-Log "Update Orchestrator Service (UsoSvc) not found" "ERROR"
         return $null
     }
     return @{
@@ -54,34 +55,67 @@ function Get-WindowsUpdateServiceStatus {
 }
 
 function Enable-WindowsUpdateService {
-    Write-Log "Enabling and starting Windows Update service..."
+    Write-Log "Setting up and starting Update Orchestrator Service..."
     
     try {
-        $service = Get-Service -Name "wuauserv" -ErrorAction Stop
+        $service = Get-Service -Name "UsoSvc" -ErrorAction Stop
         
-        # Enable the service (set to Automatic or Manual)
+        # Set service to Automatic startup type if disabled
         if ($service.StartType -eq [System.ServiceProcess.ServiceStartMode]::Disabled) {
-            Write-Log "Service is disabled. Enabling service..."
-            Set-Service -Name "wuauserv" -StartupType Automatic -ErrorAction Stop
-            Write-Log "Service enabled successfully"
+            Write-Log "Service is disabled. Setting to Automatic startup type..."
+            Set-Service -Name "UsoSvc" -StartupType Automatic -ErrorAction Stop
+            Write-Log "Service startup type set to Automatic successfully"
         }
         
         # Start the service if not running
         if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {
-            Write-Log "Starting Windows Update service..."
-            Start-Service -Name "wuauserv" -ErrorAction Stop
+            Write-Log "Starting Update Orchestrator Service..."
+            Start-Service -Name "UsoSvc" -ErrorAction Stop
             
             # Wait for service to be running
             $service.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Running, (New-TimeSpan -Seconds 30))
-            Write-Log "Windows Update service started successfully"
+            Write-Log "Update Orchestrator Service started successfully"
         } else {
-            Write-Log "Windows Update service is already running"
+            Write-Log "Update Orchestrator Service is already running"
         }
         
         return $true
     }
     catch {
-        Write-Log "Failed to enable/start Windows Update service: $($_.Exception.Message)" "ERROR"
+        Write-Log "Failed to enable/start Update Orchestrator Service: $($_.Exception.Message)" "ERROR"
+        return $false
+    }
+}
+
+function Disable-WindowsUpdateService {
+    Write-Log "Stopping and disabling Update Orchestrator Service..."
+    
+    try {
+        $service = Get-Service -Name "UsoSvc" -ErrorAction Stop
+        
+        # Stop the service if running
+        if ($service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Running) {
+            Write-Log "Stopping Update Orchestrator Service..."
+            Stop-Service -Name "UsoSvc" -ErrorAction Stop
+            
+            # Wait for service to be stopped
+            $service.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped, (New-TimeSpan -Seconds 30))
+            Write-Log "Update Orchestrator Service stopped successfully"
+        }
+        
+        # Disable the service
+        if ($service.StartType -ne [System.ServiceProcess.ServiceStartMode]::Disabled) {
+            Write-Log "Disabling Update Orchestrator Service..."
+            Set-Service -Name "UsoSvc" -StartupType Disabled -ErrorAction Stop
+            Write-Log "Update Orchestrator Service disabled successfully"
+        } else {
+            Write-Log "Update Orchestrator Service is already disabled"
+        }
+        
+        return $true
+    }
+    catch {
+        Write-Log "Failed to stop/disable Update Orchestrator Service: $($_.Exception.Message)" "ERROR"
         return $false
     }
 }
@@ -215,8 +249,7 @@ function Restart-ComputerIfRequired {
     if (Test-PendingReboot) {
         Write-Log "System restart is required. Restarting in 60 seconds..."
         Write-Log "To cancel the restart, run: shutdown /a"
-        Start-Sleep -Seconds 5
-        Restart-Computer -Force -Timeout 60
+        shutdown.exe /r /t 60 /f /c "System restart required after Windows Update installation"
         exit $Script:ExitUpdatesInstalled
     } else {
         Write-Log "No restart required"
@@ -235,24 +268,34 @@ try {
         exit $Script:ExitError
     }
     
-    # Check for available updates
-    $availableUpdates = Get-AvailableUpdates
-    
-    if ($null -eq $availableUpdates -or $availableUpdates.Count -eq 0) {
-        Write-Log "No Windows Updates available. Exiting."
-        exit $Script:ExitSuccess
-    }
-    
-    # Enable and start Windows Update service
+    # Set up Update Orchestrator Service first (required before checking for updates)
     $serviceStatus = Get-WindowsUpdateServiceStatus
     if ($null -eq $serviceStatus) {
-        Write-Log "Could not access Windows Update service. Exiting." "ERROR"
+        Write-Log "Could not access Update Orchestrator Service. Exiting." "ERROR"
         exit $Script:ExitError
     }
     
     if (-not (Enable-WindowsUpdateService)) {
-        Write-Log "Failed to enable/start Windows Update service. Exiting." "ERROR"
+        Write-Log "Failed to enable/start Update Orchestrator Service. Exiting." "ERROR"
         exit $Script:ExitError
+    }
+    
+    # Check for available updates
+    $availableUpdates = Get-AvailableUpdates
+    
+    if ($null -eq $availableUpdates -or $availableUpdates.Count -eq 0) {
+        Write-Log "No Windows Updates available."
+        
+        # Stop and disable Update Orchestrator Service
+        if (-not (Disable-WindowsUpdateService)) {
+            Write-Log "Warning: Failed to stop/disable Update Orchestrator Service. Continuing with shutdown..." "WARNING"
+        }
+        
+        # Shutdown Windows
+        Write-Log "Shutting down Windows in 60 seconds..."
+        Write-Log "To cancel the shutdown, run: shutdown /a"
+        shutdown.exe /s /t 60 /f /c "No updates available. System will shutdown."
+        exit $Script:ExitSuccess
     }
     
     # Install updates

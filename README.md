@@ -4,8 +4,8 @@ PowerShell script that automates checking for, downloading, and installing Windo
 
 ## Features
 
+- ✅ Sets Update Orchestrator Service to Automatic and starts it (as first step)
 - ✅ Checks for available Windows Updates
-- ✅ Automatically enables and starts Windows Update service (if disabled)
 - ✅ Downloads and installs all available updates
 - ✅ Automatically restarts the system if required
 - ✅ Comprehensive logging with timestamps
@@ -51,12 +51,13 @@ If you encounter execution policy restrictions, you can:
 ## Script Workflow
 
 1. **Privilege Check**: Verifies administrator privileges
-2. **Update Check**: Searches for available Windows Updates
-3. **Early Exit**: If no updates found, script exits (exit code 0)
-4. **Service Management**: If updates are found:
-   - Checks Windows Update service (`wuauserv`) status
-   - Enables service if disabled (sets to Automatic startup)
+2. **Service Setup** (First Step - Required):
+   - Checks Update Orchestrator Service (`UsoSvc`) status
+   - Sets service startup type to Automatic (if disabled)
    - Starts service if not running
+   - This must be done first as it's required to check for updates
+3. **Update Check**: Searches for available Windows Updates
+4. **Early Exit**: If no updates found, script exits (exit code 0)
 5. **Download & Install**: Downloads and installs all available updates
 6. **Restart Check**: Checks if system restart is required
 7. **Automatic Restart**: If restart needed, reboots system after 60 seconds (can be cancelled)
@@ -112,13 +113,13 @@ The script provides detailed logging with timestamps:
 
 ## Service Management
 
-The script automatically manages the Windows Update service (`wuauserv`):
+The script automatically manages the Update Orchestrator Service (`UsoSvc`) as the **very first step** (before checking for updates):
 
 - **If disabled**: Sets startup type to `Automatic` and starts the service
 - **If stopped**: Starts the service
-- **If running**: Proceeds without changes
+- **If already running**: Proceeds without changes
 
-**Note**: The script does NOT disable the service after completion. If you need to disable it again, you can do so manually or use a separate script.
+**Note**: The service is set to `Automatic` startup type when disabled. The script does NOT disable the service after completion. If you need to disable it again, you can do so manually or use a separate script.
 
 ## Restart Behavior
 
@@ -134,7 +135,7 @@ If a system restart is required after installing updates:
 
 **Solution**: Run PowerShell as Administrator. Right-click PowerShell and select "Run as Administrator".
 
-### "Windows Update service (wuauserv) not found"
+### "Update Orchestrator Service (UsoSvc) not found"
 
 **Solution**: This usually indicates a corrupted Windows installation. Run `sfc /scannow` to check system file integrity.
 
@@ -142,7 +143,7 @@ If a system restart is required after installing updates:
 
 **Solution**: 
 - Check internet connectivity
-- Verify Windows Update service is running: `Get-Service wuauserv`
+- Verify Update Orchestrator Service is running: `Get-Service UsoSvc`
 - Try running Windows Update manually first to check for errors
 - Check Windows Update log files in `C:\Windows\Logs\WindowsUpdate\`
 
