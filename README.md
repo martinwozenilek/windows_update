@@ -6,6 +6,7 @@ PowerShell script that automates checking for, downloading, and installing Windo
 
 - ✅ Sets Update Orchestrator Service to Automatic and starts it (as first step)
 - ✅ Checks for available Windows Updates
+- ✅ If no updates found: stops and disables service, then shuts down Windows
 - ✅ Downloads and installs all available updates
 - ✅ Automatically restarts the system if required
 - ✅ Comprehensive logging with timestamps
@@ -57,7 +58,11 @@ If you encounter execution policy restrictions, you can:
    - Starts service if not running
    - This must be done first as it's required to check for updates
 3. **Update Check**: Searches for available Windows Updates
-4. **Early Exit**: If no updates found, script exits (exit code 0)
+4. **No Updates Found**: If no updates found:
+   - Stops Update Orchestrator Service
+   - Disables Update Orchestrator Service
+   - Shuts down Windows after 60 seconds (can be cancelled)
+   - Script exits (exit code 0)
 5. **Download & Install**: Downloads and installs all available updates
 6. **Restart Check**: Checks if system restart is required
 7. **Automatic Restart**: If restart needed, reboots system after 60 seconds (can be cancelled)
@@ -119,7 +124,16 @@ The script automatically manages the Update Orchestrator Service (`UsoSvc`) as t
 - **If stopped**: Starts the service
 - **If already running**: Proceeds without changes
 
-**Note**: The service is set to `Automatic` startup type when disabled. The script does NOT disable the service after completion. If you need to disable it again, you can do so manually or use a separate script.
+**Note**: The service is set to `Automatic` startup type when disabled. If no updates are found, the script will stop and disable the service before shutting down.
+
+## Shutdown Behavior
+
+If no Windows Updates are available:
+
+- The script will stop the Update Orchestrator Service
+- The service will be disabled
+- Windows will shut down after a 60-second countdown
+- The shutdown can be cancelled by running: `shutdown /a` from an elevated command prompt
 
 ## Restart Behavior
 
