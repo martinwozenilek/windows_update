@@ -1,0 +1,108 @@
+{
+  "name": "webhook2psql",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "7657d7e2-3f88-46d0-9459-33aafeb097a6",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -336,
+        0
+      ],
+      "id": "e187176f-15c6-4ff4-af46-1f38b02a87a3",
+      "name": "Webhook",
+      "webhookId": "7657d7e2-3f88-46d0-9459-33aafeb097a6"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "n8n_timestamp",
+          "mode": "list",
+          "cachedResultName": "n8n_timestamp"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "value": "={{ $json.body.timestamp }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "value",
+              "displayName": "value",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -128,
+        0
+      ],
+      "id": "b0bdb2c6-cc2a-4936-ba50-705f13dc8f4e",
+      "name": "Insert rows in a table",
+      "credentials": {
+        "postgres": {
+          "id": "9meT6PEAt6bm0wQ1",
+          "name": "n8n_webhook"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Insert rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "5787dae5-4c46-46ef-83ae-e78fe46d44ad",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "18da9ce92e5cb6c733cac26e5fbe2d8335e46de7871bb3a64bcf78b1391623d0"
+  },
+  "id": "6N6QKffQHODTwYq9",
+  "tags": []
+}
