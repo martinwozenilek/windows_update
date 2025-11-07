@@ -17,7 +17,15 @@
 #>
 
 [CmdletBinding()]
-param()
+param(
+    [Parameter()]
+    [string]$WebhookUrl = "http://192.168.1.88:5678/webhook/7657d7e2-3f88-46d0-9459-33aafeb097a6"
+)
+
+$ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path -Path $ScriptRoot -ChildPath "n8n_webhook.ps1")
+
+$Script:WebhookClient = $null
 
 # Exit codes
 $Script:ExitSuccess = 0
@@ -34,6 +42,18 @@ function Write-Log {
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logMessage = "[$timestamp] [$Level] $Message"
     Write-Host $logMessage
+
+    try {
+        if (-not $Script:WebhookClient) {
+            $Script:WebhookClient = [N8nWebhookClient]::new($WebhookUrl)
+        }
+
+        $clientId = [System.Environment]::MachineName
+        $Script:WebhookClient.SendPayload($clientId, $logMessage)
+    }
+    catch {
+        Write-Host "[WARNING] Failed to send log message to webhook: $($_.Exception.Message)"
+    }
 }
 
 function Test-AdminPrivileges {

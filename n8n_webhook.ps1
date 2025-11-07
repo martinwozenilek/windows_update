@@ -16,10 +16,19 @@ class N8nWebhookClient {
         $this.WebhookUrl = $webhookUrl
     }
 
-    [void] SendTestPayload() {
-        # Build a simple payload containing the current timestamp (ISO 8601 format) for testing purposes.
+    [void] SendPayload([string]$clientId, [string]$message) {
+        if ([string]::IsNullOrWhiteSpace($clientId)) {
+            throw [System.ArgumentException]::new("ClientId cannot be null or empty.")
+        }
+
+        if ([string]::IsNullOrWhiteSpace($message)) {
+            throw [System.ArgumentException]::new("Message cannot be null or empty.")
+        }
+
+        # Build the payload using the provided client identifier and message content.
         $payload = [pscustomobject]@{
-            timestamp = (Get-Date).ToString("o")
+            clientid = $clientId
+            message  = $message
         }
 
         $bodyJson = $payload | ConvertTo-Json -Depth 5
