@@ -33,7 +33,8 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "value": "={{ $json.body.timestamp }}"
+            "clientid": "={{ $json.body.clientid }}",
+            "logmessage": "={{ $json.body.message }}"
           },
           "matchingColumns": [
             "id"
@@ -47,16 +48,37 @@
               "display": true,
               "type": "number",
               "canBeUsedToMatch": true,
-              "removed": false
+              "removed": true
             },
             {
-              "id": "value",
-              "displayName": "value",
+              "id": "logmessage",
+              "displayName": "logmessage",
               "required": false,
               "defaultMatch": false,
               "display": true,
               "type": "string",
-              "canBeUsedToMatch": true
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "clientid",
+              "displayName": "clientid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
             }
           ],
           "attemptToConvertTypes": false,
@@ -98,7 +120,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "5787dae5-4c46-46ef-83ae-e78fe46d44ad",
+  "versionId": "e28d48a4-b569-41e7-970c-922b968c92cc",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "18da9ce92e5cb6c733cac26e5fbe2d8335e46de7871bb3a64bcf78b1391623d0"
