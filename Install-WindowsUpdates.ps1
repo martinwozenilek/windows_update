@@ -19,10 +19,6 @@
 [CmdletBinding()]
 param()
 
-# Load dependencies
-$ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-. (Join-Path -Path $ScriptRoot -ChildPath "n8n_webhook.ps1")
-
 # Exit codes
 $Script:ExitSuccess = 0
 $Script:ExitError = 1
@@ -266,16 +262,6 @@ try {
     Write-Log "Windows Update Installation Script"
     Write-Log "========================================="
 
-    # Trigger n8n webhook for telemetry purposes
-    try {
-        $webhookClient = [N8nWebhookClient]::new("hhttp://192.168.1.88:5678/webhook/7657d7e2-3f88-46d0-9459-33aafeb097a6")
-        $webhookClient.SendTestPayload()
-        Write-Log "n8n webhook invoked successfully"
-    }
-    catch {
-        Write-Log "Failed to invoke n8n webhook: $($_.Exception.Message)" "WARNING"
-    }
-    
     # Check admin privileges
     if (-not (Test-AdminPrivileges)) {
         Write-Log "This script requires administrator privileges. Please run as administrator." "ERROR"
