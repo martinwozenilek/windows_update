@@ -1,0 +1,4 @@
+# Local credential files (do not commit sensitive data)
+loki_credentials.json
+
+

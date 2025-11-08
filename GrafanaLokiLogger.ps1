@@ -4,13 +4,11 @@ class GrafanaLokiLogger : System.IDisposable {
     [System.Uri] hidden $EndpointUri
     [System.Management.Automation.PSCredential] hidden $Credential
     [System.Net.Http.HttpClient] hidden $HttpClient
-    [hashtable] hidden $DefaultLabels
 
     # Create a new Loki logger instance.
     # baseUri: Loki base URL (with or without /loki/api/v1/push suffix).
     # credential: PSCredential holding Grafana basic-auth username/password.
-    # defaultLabels: Labels applied to every stream (e.g. job, environment).
-    GrafanaLokiLogger([string]$baseUri, [System.Management.Automation.PSCredential]$credential, [hashtable]$defaultLabels = @{}) {
+    GrafanaLokiLogger([string]$baseUri, [System.Management.Automation.PSCredential]$credential) {
         if ([string]::IsNullOrWhiteSpace($baseUri)) {
             throw [System.ArgumentException]::new("Base URI must be provided.", "baseUri")
         }
@@ -43,17 +41,6 @@ class GrafanaLokiLogger : System.IDisposable {
         }
 
         $this.Credential = $credential
-        $this.DefaultLabels = @{}
-
-        $labelsToApply = if ($null -ne $defaultLabels) { $defaultLabels } else { @{} }
-
-        foreach ($key in $labelsToApply.Keys) {
-            $this.DefaultLabels[$key] = [string]$labelsToApply[$key]
-        }
-
-        if (-not $this.DefaultLabels.ContainsKey("app")) {
-            $this.DefaultLabels["app"] = "powershell"
-        }
 
         $this.HttpClient = [System.Net.Http.HttpClient]::new()
         $this.HttpClient.DefaultRequestHeaders.Clear()
@@ -63,16 +50,34 @@ class GrafanaLokiLogger : System.IDisposable {
 
     # Push a log entry to Loki.
     # message: Human-readable message.
-    # level: Severity label; defaults to info.
-    # labels: Additional Loki labels merged with defaults.
-    # fields: Extra JSON fields appended to the log body.
-    [void] SendLog([string]$message, [string]$level = 'info', [hashtable]$labels = @{}, [hashtable]$fields = @{}) {
+    # level: Severity level; defaults to info.
+    # job: Logical operation name added to the Loki stream.
+    # machine: Machine identifier added to the Loki stream.
+    # timestamp: Optional explicit timestamp (DateTime/DateTimeOffset/Unix epoch/ISO string) used for the Loki entry.
+    [void] SendLog([string]$job, [string]$machine, [string]$message, [string]$level = 'info', [object]$timestamp = $null) {
+        if ([string]::IsNullOrWhiteSpace($job)) {
+            throw [System.ArgumentException]::new("Job must not be empty.", "job")
+        }
+
+        if ([string]::IsNullOrWhiteSpace($machine)) {
+            throw [System.ArgumentException]::new("Host must not be empty.", "machine")
+        }
+
         if ([string]::IsNullOrWhiteSpace($message)) {
             throw [System.ArgumentException]::new("Message must not be empty.", "message")
         }
 
-        $payload = $this.BuildPayload($message, $level, $labels, $fields)
-        $jsonBody = $payload | ConvertTo-Json -Depth 10
+        $effectiveLevel = if ([string]::IsNullOrWhiteSpace($level)) { "info" } else { $level }
+        $timestampNs = $this.ResolveTimestampToNanoseconds($timestamp)
+        $stream = @{
+            job = [string]$job
+            host = [string]$machine
+            level = $effectiveLevel
+        }
+
+        $payload = $this.BuildPayload($message, $stream, $timestampNs)
+        $jsonBody = $payload | ConvertTo-Json -Depth 10 -Compress
+        Write-Verbose ("Loki payload: {0}" -f $jsonBody)
         $content = [System.Net.Http.StringContent]::new($jsonBody, [System.Text.Encoding]::UTF8, "application/json")
 
         try {
@@ -93,43 +98,59 @@ class GrafanaLokiLogger : System.IDisposable {
         }
     }
 
-    hidden [hashtable] BuildPayload([string]$message, [string]$level, [hashtable]$labels, [hashtable]$fields) {
-        $mergedLabels = @{}
-
-        foreach ($key in $this.DefaultLabels.Keys) {
-            $mergedLabels[$key] = [string]$this.DefaultLabels[$key]
+    # Accepts a hashtable with Loki-compatible fields (job, host, level, timestamp, message).
+    [void] SendLog([hashtable]$entry) {
+        if ($null -eq $entry) {
+            throw [System.ArgumentNullException]::new("entry", "Log entry data must be provided.")
         }
 
-        foreach ($key in $labels.Keys) {
-            $mergedLabels[$key] = [string]$labels[$key]
+        if (-not $entry.ContainsKey("job")) {
+            throw [System.ArgumentException]::new("Log entry must include a 'job' value.", "entry")
         }
 
-        $mergedLabels["level"] = $level
-
-        $timestampNs = $this.GetUnixTimeNanoseconds()
-
-        $logBody = [ordered]@{
-            message = $message
+        if (-not $entry.ContainsKey("host")) {
+            throw [System.ArgumentException]::new("Log entry must include a 'host' value.", "entry")
         }
 
-        if ($fields.Count -gt 0) {
-            foreach ($fieldKey in $fields.Keys) {
-                $logBody[$fieldKey] = $fields[$fieldKey]
-            }
+        if (-not $entry.ContainsKey("message")) {
+            throw [System.ArgumentException]::new("Log entry must include a 'message' value.", "entry")
         }
 
-        $logLine = $logBody | ConvertTo-Json -Depth 10 -Compress
+        $job = [string]$entry["job"]
+        $entryHost = [string]$entry["host"]
+        $message = [string]$entry["message"]
+        $explicitLevel = if ($entry.ContainsKey("level")) { [string]$entry["level"] } else { $null }
+        $level = if ([string]::IsNullOrWhiteSpace($explicitLevel)) { "info" } else { $explicitLevel }
+
+        $timestamp = if ($entry.ContainsKey("timestamp")) { $entry["timestamp"] } else { $null }
+
+        $this.SendLog($job, $entryHost, $message, $level, $timestamp)
+    }
+
+    hidden [hashtable] BuildPayload([string]$message, [hashtable]$stream, [string]$timestampNs) {
+        if (-not $stream.ContainsKey("job") -or [string]::IsNullOrWhiteSpace($stream["job"])) {
+            throw [System.ArgumentException]::new("Stream data must include a non-empty 'job' value.", "stream")
+        }
+
+        if (-not $stream.ContainsKey("host") -or [string]::IsNullOrWhiteSpace($stream["host"])) {
+            throw [System.ArgumentException]::new("Stream data must include a non-empty 'host' value.", "stream")
+        }
+
+        if (-not $stream.ContainsKey("level") -or [string]::IsNullOrWhiteSpace($stream["level"])) {
+            $stream["level"] = "info"
+        }
+
+        $values = [System.Collections.Generic.List[object]]::new()
+        $values.Add(([object[]]@(
+            $timestampNs,
+            [string]$message
+        ))) | Out-Null
 
         return @{
             streams = @(
                 @{
-                    stream = $mergedLabels
-                    values = @(
-                        @(
-                            $timestampNs,
-                            $logLine
-                        )
-                    )
+                    stream = $stream
+                    values = $values
                 }
             )
         }
@@ -142,11 +163,87 @@ class GrafanaLokiLogger : System.IDisposable {
         return [System.Net.Http.Headers.AuthenticationHeaderValue]::new("Basic", $encoded)
     }
 
-    hidden [string] GetUnixTimeNanoseconds() {
-        $timestamp = [System.DateTimeOffset]::UtcNow
-        $milliseconds = $timestamp.ToUnixTimeMilliseconds()
-        $nanoseconds = $milliseconds * 1000000
-        return $nanoseconds.ToString()
+    hidden [string] ResolveTimestampToNanoseconds([object]$timestampCandidate) {
+        $timestamp = $this.ConvertToDateTimeOffset($timestampCandidate)
+        return $this.ToUnixTimeNanoseconds($timestamp)
+    }
+
+    hidden [System.DateTimeOffset] ConvertToDateTimeOffset([object]$candidate) {
+        if ($null -eq $candidate) {
+            return [System.DateTimeOffset]::UtcNow
+        }
+
+        if ($candidate -is [System.DateTimeOffset]) {
+            return ([System.DateTimeOffset]$candidate).ToUniversalTime()
+        }
+
+        if ($candidate -is [datetime]) {
+            return [System.DateTimeOffset]::new(([datetime]$candidate)).ToUniversalTime()
+        }
+
+        if ($candidate -is [System.Int64] -or $candidate -is [System.Int32]) {
+            return $this.ConvertEpochNumberToDateTimeOffset([System.Int64]$candidate)
+        }
+
+        if ($candidate -is [string]) {
+            $trimmed = $candidate.Trim()
+
+            if ([string]::IsNullOrWhiteSpace($trimmed)) {
+                return [System.DateTimeOffset]::UtcNow
+            }
+
+            [System.Int64] $numericValue = 0
+            if ([System.Int64]::TryParse($trimmed, [ref]$numericValue)) {
+                return $this.ConvertEpochNumberToDateTimeOffset($numericValue)
+            }
+
+            [System.DateTimeOffset] $parsedTimestamp = [System.DateTimeOffset]::MinValue
+            if ([System.DateTimeOffset]::TryParse($trimmed, [ref]$parsedTimestamp)) {
+                return $parsedTimestamp.ToUniversalTime()
+            }
+
+            throw [System.ArgumentException]::new("Unable to parse timestamp string. Provide ISO8601 text or Unix epoch value.", "timestamp")
+        }
+
+        throw [System.ArgumentException]::new("Unsupported timestamp type. Provide a string, DateTimeOffset, DateTime, or Unix epoch integer.", "timestamp")
+    }
+
+    hidden [System.DateTimeOffset] ConvertEpochNumberToDateTimeOffset([System.Int64]$epochValue) {
+        if ($epochValue -lt 0) {
+            throw [System.ArgumentOutOfRangeException]::new("timestamp", "Timestamp cannot be negative.")
+        }
+
+        $digits = $epochValue.ToString().Length
+        $epoch = [System.DateTimeOffset]::UnixEpoch
+
+        $offset = switch ($digits) {
+            { $_ -le 10 } {
+                [System.DateTimeOffset]::FromUnixTimeSeconds($epochValue)
+            }
+            { $_ -le 13 } {
+                $seconds = [System.Math]::Floor($epochValue / 1000)
+                $milliseconds = $epochValue % 1000
+                [System.DateTimeOffset]::FromUnixTimeSeconds([long]$seconds).AddMilliseconds($milliseconds)
+            }
+            { $_ -le 16 } {
+                $seconds = [System.Math]::Floor($epochValue / 1000000)
+                $microseconds = $epochValue % 1000000
+                $epoch.AddSeconds($seconds).AddTicks($microseconds * 10)
+            }
+            default {
+                $seconds = [System.Math]::Floor($epochValue / 1000000000)
+                $nanoseconds = $epochValue % 1000000000
+                $epoch.AddSeconds($seconds).AddTicks([long]([System.Math]::Floor($nanoseconds / 100)))
+            }
+        }
+
+        return $offset.ToUniversalTime()
+    }
+
+    hidden [string] ToUnixTimeNanoseconds([System.DateTimeOffset]$timestamp) {
+        $utcTimestamp = $timestamp.ToUniversalTime()
+        $ticksSinceEpoch = $utcTimestamp.Ticks - [System.DateTimeOffset]::UnixEpoch.Ticks
+        return ($ticksSinceEpoch * 100).ToString()
     }
 
     [void] Dispose() {
@@ -167,16 +264,16 @@ class GrafanaLokiLogger : System.IDisposable {
 
  $logger = [GrafanaLokiLogger]::new(
      "https://logs-prod-us-central1.grafana.net",
-     $credential,
-     @{ job = "windows-maintenance"; environment = "dev" }
+     $credential
  )
 
- $logger.SendLog(
-     "Windows update workflow started.",
-     "info",
-     @{ component = "scheduler" },
-     @{ correlationId = "7f1f1b15-1c3e-4b61-a5c1-3ddf6c770d2e"; host = $env:COMPUTERNAME }
- )
+$logger.SendLog(@{
+    job = "windows-update"
+    host = [System.Environment]::MachineName
+     level = "info"
+     timestamp = [System.DateTimeOffset]::UtcNow
+     message = "Windows update workflow started."
+ })
 
  $logger.Dispose()
 #>

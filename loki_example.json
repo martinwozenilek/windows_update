@@ -1,0 +1,15 @@
+{
+    "streams": [
+      {
+        "stream": {
+          "job": "windows-update",
+          "host": "srv01",
+          "level": "info"
+        },
+        "values": [
+          ["1731066000000000000", "systemd: Started NetworkManager."]
+        ]
+      }
+    ]
+  }
+  
