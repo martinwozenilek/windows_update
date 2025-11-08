@@ -162,6 +162,7 @@ class GrafanaLokiLogger : System.IDisposable {
  Demonstrates how to use the GrafanaLokiLogger class.
 
 .EXAMPLE
+ $securePassword = "api-super-secret" | ConvertTo-SecureString -AsPlainText -Force
  $credential = [System.Management.Automation.PSCredential]::new("123456", $securePassword)
 
  $logger = [GrafanaLokiLogger]::new(
